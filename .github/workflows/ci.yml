@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Check MCP syntax
+        run: npm run check
+
+      - name: Validate Railway config JSON
+        run: |
+          node -e "for (const f of ['railway.json', 'tunnel-client/railway.json']) JSON.parse(require('node:fs').readFileSync(f, 'utf8'))"
+
+      - name: Build tunnel-client image
+        run: docker build --pull --tag railway-sandbox-tunnel:test tunnel-client

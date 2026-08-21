@@ -6,14 +6,12 @@ A small MCP bridge that lets ChatGPT drive Railway Sandboxes as an isolated deve
 
 Both long-running Railway services are deployed from this GitHub repository through Railway's GitHub integration:
 
-| Railway service | GitHub branch | Railway root directory | Purpose |
-| --- | --- | --- | --- |
-| `sandbox-mcp` | `main` | `/` | Node MCP server backed by the Railway Sandbox SDK |
-| `tunnel-client` | `main` | `/tunnel-client` | OpenAI Secure MCP Tunnel client, built from `tunnel-client/Dockerfile` |
+| Railway service | GitHub branch | Railway root directory | Config-as-code file | Purpose |
+| --- | --- | --- | --- | --- |
+| `sandbox-mcp` | `main` | `/` | `/railway.json` | Node MCP server backed by the Railway Sandbox SDK |
+| `tunnel-client` | `main` | `/tunnel-client` | `/tunnel-client/railway.json` | OpenAI Secure MCP Tunnel client |
 
-The `tunnel-client` Dockerfile inherits the official `ghcr.io/openai/tunnel-client:latest` image. Railway therefore owns the deployment lifecycle while OpenAI remains the upstream image provider.
-
-Traffic flow:
+The `tunnel-client` Dockerfile inherits the official `ghcr.io/openai/tunnel-client:latest` image. Railway owns the deployment lifecycle while OpenAI remains the upstream image provider.
 
 ```text
 ChatGPT
@@ -36,26 +34,43 @@ Railway Sandbox SDK
 Ephemeral isolated Linux sandboxes with outbound Internet
 ```
 
-Neither Railway service needs a public domain. The MCP server is reachable only through Railway private networking; the tunnel client makes the outbound connection to OpenAI.
+Neither Railway service needs a public domain.
 
-## Railway deployment
+## Config as code
 
-Configure both services with the GitHub source `erwinkn/railway-sandbox-mcp` and branch `main`.
+Deployment behavior is committed to this repository:
 
-### `sandbox-mcp`
+- `/railway.json` defines the MCP service builder, watch paths, start command, health check, and restart policy.
+- `/tunnel-client/railway.json` defines the tunnel-client Docker build, watch paths, readiness check, and restart policy.
+- `/tunnel-client/Dockerfile` selects the official OpenAI tunnel-client image.
+- `/.github/workflows/ci.yml` validates the Node service and Railway config files and builds the tunnel-client image on pushes and pull requests.
 
+Railway configuration committed in code overrides equivalent dashboard build/deploy values for each deployment.
+
+### One-time Railway service wiring
+
+Source association, trigger branch, and the custom config-file path are Railway service metadata rather than fields inside `railway.json`, so configure these once in Railway:
+
+#### `sandbox-mcp`
+
+- Source repository: `erwinkn/railway-sandbox-mcp`
+- Branch: `main`
 - Root directory: `/`
-- Start command: `npm start`
-- Optional health check: `/health`
-- Private hostname used by the tunnel: `sandbox-mcp.railway.internal:8080`
+- Config file path: `/railway.json`
+- GitHub autodeploy: enabled
+- Wait for CI: enabled
 
-### `tunnel-client`
+#### `tunnel-client`
 
+- Source repository: `erwinkn/railway-sandbox-mcp`
+- Branch: `main`
 - Root directory: `/tunnel-client`
-- Railway should detect `Dockerfile` automatically.
-- Do not configure a custom start command; inherit the official image entrypoint.
+- Config file path: `/tunnel-client/railway.json`
+- GitHub autodeploy: enabled
+- Wait for CI: enabled
+- No custom start command; inherit the official image entrypoint
 
-With GitHub autodeploy enabled, pushes to `main` rebuild the corresponding Railway service.
+The service-specific watch paths mean MCP-only changes do not rebuild the tunnel client, and tunnel-only changes do not rebuild the MCP server.
 
 ## Required environment variables
 
@@ -71,7 +86,13 @@ With GitHub autodeploy enabled, pushes to `main` rebuild the corresponding Railw
 - `CONTROL_PLANE_API_KEY=...`: restricted OpenAI runtime key with Tunnel Read + Use permissions.
 - `LOG_LEVEL=info`
 - `LOG_FORMAT=json`
-- `HEALTH_LISTEN_ADDR=0.0.0.0:8080`
+- `HEALTH_LISTEN_ADDR=:8080`
+
+`tunnel-client` exposes `/healthz`, `/readyz`, and `/metrics` on its health listener. Railway uses `/readyz` as the deployment health check.
+
+## Deployment flow
+
+A push to `main` runs GitHub Actions. With Railway's **Wait for CI** enabled, Railway waits for CI to pass, then autodeploys only the services whose watch patterns match the changed files.
 
 ## MCP tools
 
