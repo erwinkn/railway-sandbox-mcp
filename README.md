@@ -4,20 +4,74 @@ A small MCP bridge that lets ChatGPT drive Railway Sandboxes as an isolated deve
 
 ## Architecture
 
-- `sandbox-mcp`: this Node service, reachable only over Railway private networking at `/mcp`.
-- `tunnel-client`: the official `ghcr.io/openai/tunnel-client` image, which connects outbound to OpenAI and forwards MCP traffic to this service.
-- Railway Sandboxes: ephemeral isolated Linux VMs with outbound Internet access used for builds, tests, package installation, scripts, and other development commands.
+Both long-running Railway services are deployed from this GitHub repository through Railway's GitHub integration:
+
+| Railway service | GitHub branch | Railway root directory | Purpose |
+| --- | --- | --- | --- |
+| `sandbox-mcp` | `main` | `/` | Node MCP server backed by the Railway Sandbox SDK |
+| `tunnel-client` | `main` | `/tunnel-client` | OpenAI Secure MCP Tunnel client, built from `tunnel-client/Dockerfile` |
+
+The `tunnel-client` Dockerfile inherits the official `ghcr.io/openai/tunnel-client:latest` image. Railway therefore owns the deployment lifecycle while OpenAI remains the upstream image provider.
+
+Traffic flow:
+
+```text
+ChatGPT
+  |
+  v
+OpenAI Secure MCP Tunnel
+  ^
+  | outbound HTTPS
+  |
+tunnel-client (Railway)
+  |
+  | Railway private network
+  v
+sandbox-mcp:8080/mcp (Railway)
+  |
+  v
+Railway Sandbox SDK
+  |
+  v
+Ephemeral isolated Linux sandboxes with outbound Internet
+```
+
+Neither Railway service needs a public domain. The MCP server is reachable only through Railway private networking; the tunnel client makes the outbound connection to OpenAI.
+
+## Railway deployment
+
+Configure both services with the GitHub source `erwinkn/railway-sandbox-mcp` and branch `main`.
+
+### `sandbox-mcp`
+
+- Root directory: `/`
+- Start command: `npm start`
+- Optional health check: `/health`
+- Private hostname used by the tunnel: `sandbox-mcp.railway.internal:8080`
+
+### `tunnel-client`
+
+- Root directory: `/tunnel-client`
+- Railway should detect `Dockerfile` automatically.
+- Do not configure a custom start command; inherit the official image entrypoint.
+
+With GitHub autodeploy enabled, pushes to `main` rebuild the corresponding Railway service.
 
 ## Required environment variables
 
-The MCP service requires:
+### `sandbox-mcp`
 
 - `RAILWAY_API_TOKEN`: Railway API token with access to the environment where Sandboxes are enabled.
 - `RAILWAY_ENVIRONMENT_ID`: injected automatically by Railway.
 
-The tunnel-client service requires the variables documented by OpenAI's secure MCP tunnel guide, including the tunnel ID and runtime API key, plus:
+### `tunnel-client`
 
 - `MCP_SERVER_URL=http://sandbox-mcp.railway.internal:8080/mcp`
+- `CONTROL_PLANE_TUNNEL_ID=tunnel_...`
+- `CONTROL_PLANE_API_KEY=...`: restricted OpenAI runtime key with Tunnel Read + Use permissions.
+- `LOG_LEVEL=info`
+- `LOG_FORMAT=json`
+- `HEALTH_LISTEN_ADDR=0.0.0.0:8080`
 
 ## MCP tools
 
