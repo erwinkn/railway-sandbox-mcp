@@ -10,6 +10,9 @@
     ]
   },
   "deploy": {
+    "preDeployCommand": [
+      "node --input-type=module -e \"import { Sandbox } from 'railway'; await Sandbox.list();\""
+    ],
     "startCommand": "npm start",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30,
