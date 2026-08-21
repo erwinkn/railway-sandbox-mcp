@@ -11,7 +11,7 @@ Both long-running Railway services are deployed from this GitHub repository thro
 | `sandbox-mcp` | `main` | `/` | `/railway.json` | Node MCP server backed by the Railway Sandbox SDK |
 | `tunnel-client` | `main` | `/tunnel-client` | `/tunnel-client/railway.json` | OpenAI Secure MCP Tunnel client |
 
-The `tunnel-client` Dockerfile inherits the official `ghcr.io/openai/tunnel-client:latest` image. Railway owns the deployment lifecycle while OpenAI remains the upstream image provider.
+The `tunnel-client` Dockerfile inherits the official `ghcr.io/openai/tunnel-client:latest` image and only wraps its entrypoint so the upstream health/readiness server binds to Railway's injected `PORT`. Railway owns the deployment lifecycle while OpenAI remains the upstream image provider.
 
 ```text
 ChatGPT
@@ -42,7 +42,7 @@ Deployment behavior is committed to this repository:
 
 - `/railway.json` defines the MCP service builder, watch paths, start command, health check, and restart policy.
 - `/tunnel-client/railway.json` defines the tunnel-client Docker build, watch paths, readiness check, and restart policy.
-- `/tunnel-client/Dockerfile` selects the official OpenAI tunnel-client image.
+- `/tunnel-client/Dockerfile` selects the official OpenAI tunnel-client image and adapts its health listener to Railway's injected `PORT`.
 - `/.github/workflows/ci.yml` validates the Node service and Railway config files and builds the tunnel-client image on pushes and pull requests.
 
 Railway configuration committed in code overrides equivalent dashboard build/deploy values for each deployment.
@@ -68,7 +68,7 @@ Source association, trigger branch, and the custom config-file path are Railway 
 - Config file path: `/tunnel-client/railway.json`
 - GitHub autodeploy: enabled
 - Wait for CI: enabled
-- No custom start command; inherit the official image entrypoint
+- No custom start command; inherit the repository Dockerfile entrypoint
 
 The service-specific watch paths mean MCP-only changes do not rebuild the tunnel client, and tunnel-only changes do not rebuild the MCP server.
 
@@ -86,9 +86,8 @@ The service-specific watch paths mean MCP-only changes do not rebuild the tunnel
 - `CONTROL_PLANE_API_KEY=...`: restricted OpenAI runtime key with Tunnel Read + Use permissions.
 - `LOG_LEVEL=info`
 - `LOG_FORMAT=json`
-- `HEALTH_LISTEN_ADDR=:8080`
 
-`tunnel-client` exposes `/healthz`, `/readyz`, and `/metrics` on its health listener. Railway uses `/readyz` as the deployment health check.
+`tunnel-client` exposes `/healthz`, `/readyz`, and `/metrics` on Railway's injected port. Railway uses `/readyz` as the deployment health check, so a successful tunnel-client deployment verifies both tunnel startup and downstream MCP readiness.
 
 ## Deployment flow
 
